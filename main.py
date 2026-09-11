@@ -33,8 +33,8 @@ class Critique(BaseModel):
         ge=1,
         le=10,
         description="Score must be an integer from 1 to 10 based strictly on this tier system:\n"
-        "- 9 to 10: Approve (Flawless / ready to use)\n"
-        "- 7 to 8: Pass (Minor edits needed)\n"
+        "- 10: Approve (Flawless / ready to use)\n"
+        "- 8 to 9: Pass (Minor edits needed)\n"
         "- 2 to 6: Reject (Major edits / poor quality)\n"
         "- 1: Reject (Completely unusable)",
     )
@@ -203,7 +203,7 @@ graph = builder.compile()
 
 for event in graph.stream(
     {
-        "assignment": "Write one setence about when the first death metal song was recorded",
+        "assignment": "Explain in one sentence if god exists",
     }
 ):
     print("EVENT:")
