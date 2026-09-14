@@ -35,7 +35,7 @@ class Critique(BaseModel):
         description="Score must be an integer from 1 to 10 based strictly on this tier system:\n"
         "- 10: Approve (Flawless / ready to use)\n"
         "- 8 to 9: Pass (Minor edits needed)\n"
-        "- 2 to 6: Reject (Major edits / poor quality)\n"
+        "- 2 to 7: Reject (Major edits / poor quality)\n"
         "- 1: Reject (Completely unusable)",
     )
 
@@ -118,7 +118,8 @@ def editor_node(state: State) -> State:
     The score must be consistent with your feedback. 
     Score 9–10 only if feedback is empty. If feedback is non-empty, score 8 or below
     If the draft fails any explicit requirement in the assignment, score 4 or below.
-    Factual precision is the Fact-Checker's responsibility. Do not request claims the research does not support."."""
+    Factual precision is the Fact-Checker's responsibility. Do not request claims the research does not support
+    Ignore punctuation and typography and judge only whether the assignment is satisfied."."""
 
     critique = editor_llm.invoke(draft_prompt)
 
@@ -155,6 +156,7 @@ Research (the only source of truth): {research}
 List every factual claim from the draft in `claims`, each marked SUPPORTED or UNSUPPORTED against the research.
 In `fact_issues`, list ONLY the UNSUPPORTED claims and what the research actually says instead.
 If every claim is SUPPORTED, `fact_issues` must be an empty list and `is_accurate` must be true.
+Accept reasonable paraphrase and inference. Only flag a claim if it contradicts the research or has no basis in it at all.
 Never comment on wording, tone, or style.only judge verifiable claims — names, dates, titles, numbers — and ignore subjective characterisation.Only check verifiable specifics: names, dates, titles, numbers, quantities. Ignore subjective characterisation."""
 
     fact_check_result = fact_checker_llm.invoke(prompt)
@@ -165,6 +167,10 @@ Never comment on wording, tone, or style.only judge verifiable claims — names,
         "fact_issues": issues,
         "is_accurate": fact_check_result.is_accurate,
     }
+
+
+def gate_node(state: State) -> State:
+    return {}
 
 
 def route_after_fact_check(state: State) -> str:
@@ -184,26 +190,37 @@ def route_after_editor(state: State) -> str:
     return "revise"
 
 
+def route_after_review(state: State) -> str:
+
+    if state.get("revision_count", 0) >= state.get("max_revisions", 3):
+        return "proceed"
+    if state.get("score", 0) >= 8 and state.get("is_accurate"):
+        return "proceed"
+
+    return "revise"
+
+
 builder = StateGraph(State)
 builder.add_node("writer", writer_node)
 builder.add_node("editor", editor_node)
 builder.add_node("researcher", researcher_node)
 builder.add_node("fact_checker", fact_check_node)
+builder.add_node("gate", gate_node)
 builder.add_edge(START, "researcher")
 builder.add_edge("researcher", "writer")
-builder.add_edge("writer", "fact_checker")
+builder.add_edge("writer", "fact_checker")  # fan out
+builder.add_edge("writer", "editor")  # fan out
+builder.add_edge("fact_checker", "gate")  # fan in
+builder.add_edge("editor", "gate")  # fan in
 builder.add_conditional_edges(
-    "fact_checker", route_after_fact_check, {"revise": "writer", "proceed": "editor"}
-)
-builder.add_conditional_edges(
-    "editor", route_after_editor, {"revise": "writer", "stop": END}
+    "gate", route_after_review, {"revise": "writer", "proceed": END}
 )
 graph = builder.compile()
 
 
 for event in graph.stream(
     {
-        "assignment": "Explain in one sentence if god exists",
+        "assignment": "Write in one sentence what is Pepe the frog, who invented it and what it represents",
     }
 ):
     print("EVENT:")
